@@ -77,8 +77,8 @@ start: {
     //lda #DARK_GRAY
     lda #RED
     sta $D026           // Shared colour 2
-    //lda #WHITE
-    lda #YELLOW
+    lda #WHITE
+    //lda #YELLOW
     //lda #BLACK
     sta $D027     // Sprite0 colour
 
@@ -315,177 +315,81 @@ done:
 }
 
 .segment Data
-// Type of sprite byte
-// 0=Ignore
-// 1=Top
-// 2=Right
-// 3=Bottom
-// 4=Left
-byteType:
-    .byte  1,  1,  1
-    .byte  1,  1,  1
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  4,  0,  2
-    .byte  3,  3,  3
-    .byte  3,  3,  3
+// Pixel Array.
+// Each byte respresents a single animated pixel. The 2-bit pixel value is repeated in the 4 possible locations within a byte.
+// The required pixel value is masked out of the pixel byte, and used to update the relevant sprite byte.
+// Each pixel follows the same path within sprite memory.
+// A $00, tail pixel is needed between non-consecutive pixels, to blank out the trailing pixel as it progresses through the animation.
+pixels:
+    .byte %00000000, %11111111, %11111111, %01010101, %01010101, %10101010
+    .byte %00000000, %11111111, %11111111, %01010101, %01010101, %10101010
+// pathInd holds the index position of the pixel, within the animaton path arrays (bytePath and PixelMask).
+// All the index values are increment once per animation frame.
+// The indices wrap back to zero at the end of the animation path. So the animation is cyclic.
+pathInd:
+    .byte         0,         1,         2,         3,         4,         5
+    .byte        15,        16,        17,        18,        19,        20
+.label pixelCnt = * - pathInd
 
-// Countdown till update for each sprite byte
-zeroFrameCnt:
-    .byte  1,  4,  8         // Take 4 refreshes to move right or left one multicoloured sprite pixel
-    .byte  1,  4,  8         // Takes 1 refresh to move 2 pixels down or up
-    .byte 35, 00,  9
-    .byte 34, 00,  9
-    .byte 34, 00, 10
-    .byte 33, 00, 10
-    .byte 33, 00, 11
-    .byte 32, 00, 11
-    .byte 32, 00, 12
-    .byte 31, 00, 12
-    .byte 31, 00, 13
-    .byte 30, 00, 13
-    .byte 30, 00, 14
-    .byte 29, 00, 14
-    .byte 29, 00, 15
-    .byte 28, 00, 15
-    .byte 28, 00, 16
-    .byte 27, 00, 16
-    .byte 27, 00, 17
-    .byte 26, 22, 18
-    .byte 26, 22, 18
-
-// Index into the array of byte update values, for each sprite byte
-byteInd:
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-    .byte  0,  0,  0
-
-// Array of byte update values for sprite bytes of type Top, Right, Bottom and Left
-// Each byte value is the progression of updates to the sprite byte value, while it is changing.
-// Each array ends in $00. Which retriggers the countdown to the next sequence of updates
-topBytes:
-    .byte %10000000
-    .byte %01100000
-    .byte %11011000
-    .byte %11110110
-    .byte %00111101
-    .byte %00001111
-    .byte %00000011
-    .byte %00000000
-rightBytes:
-    .byte %00000010
-    .byte %00000001
-    .byte %00000011
-    .byte %00000011
-    .byte %00000000
-botBytes:
-    .byte %00000010
-    .byte %00001001
-    .byte %00100111
-    .byte %10011111
-    .byte %01111100
-    .byte %11110000
-    .byte %11000000
-    .byte %00000000
-leftBytes:
-    .byte %10000000
-    .byte %01000000
-    .byte %11000000
-    .byte %11000000
-    .byte %00000000
+// bytePath and pixelMask represent the path a pixel takes within sprite memory.
+// bytePath holds the sequence of sprite memory offsets into sprite memory.
+// pixelMask holds the sequence of 2bit pixel locations, within the sprite byte.
+bytePath:
+    .byte 0,1,1,1,1,2
+    .byte 8,14,20,26,32,38,44,50,56
+    .byte 55,55,55,55,54
+    .byte 48,42,36,30,24,18,12,6
+.label pathLen = * - bytePath
+ 
+pixelMask:
+    .byte $03,$C0,$30,$0C,$03,$C0
+    .byte $30,$0C,$03,$03,$03,$03,$0C,$30,$C0
+    .byte $03,$C0,$30,$C0,$03
+    .byte $0C,$30,$C0,$C0,$C0,$C0,$30,$0C
 
 .segment Memory
-zeroFrames: .byte $00        // Variable to save required countdown reset value
+sMask: .byte $00
+pMask: .byte $00
 
-// Refresh the sprite animation
-// This routine loops through each sprite byte and updates is value, if it's time to.
-// zeroFrameCnt is decremented while the sprite byte = $00
-// When zeroFrameCnt gets to 0 it's time to update the sprite byte
-// zeroFrameCnt stays zero while the sprite byte cycles through it's updates, over multiple refesh calls
-// The last sprite byte update, sets the sprite byte back to zero and resets zeroFrameCnt to start the refresh countdown again.
+/* 
+Refresh the sprite animation
+Loop through the pixels array.
+Place the pixel value in sprite memory and increment it's location in the animation path.
+bytePath[pathInd[pixel#]] = The byte offset withn the sprite memory. 0 - 62
+pixelMask[pathInd[pixel#]] = The 2bit pixel location within the sprite byte.
+   The 1-bits mask the pixels[pixel#] byte and;
+   The XOR, masks the sprite0[bytePath[pathInd[pixel#]]] bits to retain.
+*/
 .segment Code "Refresh"
 refresh: {
-    ldx #$00                 // X=Index offset to sprite byte and associated zeroFrameCnt, byteType and byteInd
-nextByte:
-    lda zeroFrameCnt, x      // Is the sprite byte being updated. I.e. is zeroFrameCnt[x] = 0
-    bne decFrameCnt          // No, then dec and move to next byte
-    lda byteType, x          // Yes, Check byte type
-    beq byteDone             // type = 0? then do nothing
-    ldy byteInd, x           // Prep Y=byteInd[x] with offset into byte updates array
-    cmp #1                   // Top byte?
-    beq top
-    cmp #2                   // Right byte?
-    beq right
-    cmp #3                   // Bottom byte?
-    beq bot
-    cmp #4                   // Left byte?
-    bne byteDone             // No, then byte type out of range!
-left:                        // Left bytes, animation moves up
-    lda #32                  // Save the required zeroFrameCnt for Left bytes
-    sta zeroFrames
-    lda leftBytes, y         // Grab the value of the next update into A
-    jmp setByte
-top:                         // Top bytes, animation moves right
-    lda #29                  // Save the required zeroFrameCnt for Top bytes
-    sta zeroFrames
-    lda topBytes, y
-    jmp setByte
-right:                       // Right bytes, animation moves down
-    lda #32
-    sta zeroFrames
-    lda rightBytes, y
-    jmp setByte
-bot:                         // Bottom bytes, animation moves left
-    lda #29
-    sta zeroFrames
-    lda botBytes, y
-setByte:
-    sta sprite0, x          // Update the sprite byte with it's value for this refresh/frame. sprite0[x] = A
-    inc byteInd, x          // Assume more update bytes in the sequence. Corrected just below, if overshot.
-    cmp #$00                // Have we just written a $00 (I.e. end of update sequence for this byte)?
-    bne byteDone            // No, then finished with this sprite byte
-    sta byteInd, x          // Yes, then need to reset array index. A=0 here.
-    lda zeroFrames          // Reset countdown in zeroFrameCnt[x]=zeroFrames (saved about, based on byteType)
-    sta zeroFrameCnt, x     // Value will be immediately decremented. But simpler to just set +1 and drop throught
-decFrameCnt:
-    dec zeroFrameCnt, x
-byteDone:
-    inx
-    cpx #63                 // Was this the last sprite byte?
-    bcc nextByte            // No, go do the next one
-    rts
+    ldx #$00                 // X = index into pixel array
+nextPixel:
+    ldy pathInd, x           // Y = Index into path arrays; bytePath and pixelMask
+    lda pixelMask, y
+    sta pMask                // Store current pixel byte mask
+    eor #$FF           
+    sta sMask                // Store current sprite byte mask
+    lda bytePath, y
+    tay                      // Y = sprite0 byte index
+    lda sprite0, y           // Get current sprite byte
+    and sMask                // Zero sprite bit locations of new pixel bits
+    sta sprite0, y           // Store sprite byte with reset bits
+    lda pixels, x             // Get the pixel pattern
+    and pMask                // Zero all but the 2 pixel bits
+    ora sprite0, y           // Set the new pixel bit values
+    sta sprite0, y           // Update the sprite byte
+    sta sprite0+3, y         // Update pixel byte below
+    inc pathInd, x
+    lda pathInd, x           // Inc and Get the path index value
+    cmp #pathLen             // At end of path?
+    bcc !+                   // No, then done with this pixel
+    lda #$00                 // Yes, then zero path index
+    sta pathInd, x
+!:
+    inx                      // Next pixel
+    cpx #pixelCnt            // More pixels to process?
+    bcc nextPixel            // Yes, then do next one
+    rts                    
 }
 
 .segment Sprite "Sprite0"
