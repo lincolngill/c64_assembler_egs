@@ -1,7 +1,7 @@
 BasicUpstart2(start)
 //
 // 320 x 200 1-bit/pixel - hires mode = 8000 bytes
-// 160 x 200 2-bit/pixel - colour mode = 8000 bytes
+// 160 x 200 2-bit/pixel - multi colour mode = 8000 bytes
 // Screen memory: 1000 bytes. Bank 1 = $4000 + $0400 (from $D018)
 // Bit map requires 8,000 bytes ($1F40) and must be aligned on $2000 boundaries. E.g. $0000, $2000, $4000, $6000 (usual place)...
 // $D800 - $DBE7 Colour RAM: 1000 nibbles in 1000 bytes. Fixed addr. 4k SRAM chip
